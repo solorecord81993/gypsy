@@ -198,13 +198,13 @@ function classifyQuestion(question: string): QuestionKind {
   return "general";
 }
 
-function drawCards(count: number): DrawnCard[] {
+function shuffleDeck(): DrawnCard[] {
   const pool = [...deck];
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
-  return pool.slice(0, count).map((card) => ({ ...card, reversedDraw: Math.random() < 0.32 }));
+  return pool.map((card) => ({ ...card, reversedDraw: Math.random() < 0.32 }));
 }
 
 function detectIntent(question: string): QuestionIntent {
@@ -344,6 +344,8 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [count, setCount] = useState(3);
   const [cards, setCards] = useState<DrawnCard[]>([]);
+  const [selectionDeck, setSelectionDeck] = useState<DrawnCard[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [view, setView] = useState<"overall" | "cards">("overall");
   const [revealing, setRevealing] = useState(false);
   const [phase, setPhase] = useState<"idle" | "shuffle" | "deal">("idle");
@@ -354,6 +356,7 @@ export default function Home() {
   const intent = useMemo(() => detectIntent(question), [question]);
   const overall = useMemo(() => cards.length ? overallReading(cards, kind, intent) : null, [cards, kind, intent]);
   const displayedOverall = aiReading ?? overall;
+  const remaining = Math.max(0, count - selectedIds.length);
 
   async function requestAiReading(drawnCards: DrawnCard[], submittedQuestion: string) {
     const requestId = ++readingRequestId.current;
@@ -388,31 +391,66 @@ export default function Home() {
     }
   }
 
-  function predict() {
+  function beginSelection() {
     if (!question.trim() || revealing) return;
-    const submittedQuestion = question.trim();
+    readingRequestId.current += 1;
     setRevealing(true);
     setPhase("shuffle");
     setCards([]);
+    setSelectionDeck([]);
+    setSelectedIds([]);
     setAiReading(null);
     setAiLoading(false);
     window.setTimeout(() => {
-      const drawnCards = drawCards(count);
-      setPhase("deal");
-      setCards(drawnCards);
-      setView("overall");
-      void requestAiReading(drawnCards, submittedQuestion);
+      setSelectionDeck(shuffleDeck());
+      setRevealing(false);
+      setPhase("idle");
+      window.setTimeout(() => document.getElementById("choose-cards")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
     }, 900);
+  }
+
+  function toggleCard(cardId: string) {
+    setSelectedIds((current) => {
+      if (current.includes(cardId)) return current.filter((id) => id !== cardId);
+      if (current.length >= count) return current;
+      return [...current, cardId];
+    });
+  }
+
+  function revealSelectedCards() {
+    if (selectedIds.length !== count || revealing) return;
+    const drawnCards = selectedIds
+      .map((id) => selectionDeck.find((card) => card.id === id))
+      .filter((card): card is DrawnCard => Boolean(card));
+    if (drawnCards.length !== count) return;
+
+    setRevealing(true);
+    setPhase("deal");
+    setView("overall");
+    window.setTimeout(() => {
+      setCards(drawnCards);
+      setSelectionDeck([]);
+      setSelectedIds([]);
+      void requestAiReading(drawnCards, question.trim());
+    }, 620);
     window.setTimeout(() => {
       setRevealing(false);
       setPhase("idle");
       window.setTimeout(() => document.getElementById("reading")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
-    }, 1650);
+    }, 1250);
+  }
+
+  function backToQuestion() {
+    setSelectionDeck([]);
+    setSelectedIds([]);
+    window.setTimeout(() => document.getElementById("top")?.scrollIntoView({ behavior: "smooth", block: "start" }), 20);
   }
 
   function reset() {
     readingRequestId.current += 1;
     setCards([]);
+    setSelectionDeck([]);
+    setSelectedIds([]);
     setQuestion("");
     setAiReading(null);
     setAiLoading(false);
@@ -430,7 +468,7 @@ export default function Home() {
           <div className="hero-copy">
             <p className="eyebrow">TAROT READING</p>
             <h1 id="page-title">ถามไพ่<br />หนึ่งคำถาม</h1>
-            <p className="intro">เขียนเรื่องที่อยากรู้ แล้วเลือกจำนวนไพ่</p>
+            <p className="intro">เขียนเรื่องที่อยากรู้ แล้วเลือกไพ่จากสำรับด้วยตัวเอง</p>
           </div>
 
           <div className="card-fan" aria-hidden="true">
@@ -439,7 +477,7 @@ export default function Home() {
             <div className="fan-card fan-right"><CardBack /></div>
           </div>
 
-          <form className="question-panel" onSubmit={(event) => { event.preventDefault(); predict(); }}>
+          <form className="question-panel" onSubmit={(event) => { event.preventDefault(); beginSelection(); }}>
             <div className="step-label"><p>คำถามของคุณ</p></div>
             <label className="sr-only" htmlFor="question">คำถามที่ต้องการถามไพ่</label>
             <textarea
@@ -469,18 +507,65 @@ export default function Home() {
               ))}
             </div>
             <button className="predict-button" type="submit" disabled={!question.trim() || revealing}>
-              {revealing ? "กำลังเปิดไพ่…" : "เริ่มทำนาย"}<span aria-hidden="true">✦</span>
+              {revealing ? "กำลังสับไพ่…" : "ไปเลือกไพ่"}<span aria-hidden="true">✦</span>
             </button>
           </form>
         </div>
       </section>
 
       {revealing && (
-        <div className={`ritual-overlay ${phase}`} aria-live="polite" aria-label={phase === "shuffle" ? "กำลังสับไพ่" : "กำลังวางไพ่"}>
+        <div className={`ritual-overlay ${phase}`} aria-live="polite" aria-label={phase === "shuffle" ? "กำลังสับไพ่" : "กำลังเปิดไพ่"}>
           <div className="ritual-glow" />
           <div className="shuffle-cards"><CardBack small /><CardBack small /><CardBack small /><CardBack small /><CardBack small /></div>
-          <p>{phase === "shuffle" ? "กำลังสับไพ่" : "กำลังวางไพ่"}</p>
+          <p>{phase === "shuffle" ? "กำลังสับไพ่ให้คุณเลือก" : "กำลังเปิดไพ่ที่คุณเลือก"}</p>
         </div>
+      )}
+
+      {selectionDeck.length > 0 && (
+        <section id="choose-cards" className="deck-section" aria-labelledby="deck-title">
+          <div className="deck-heading">
+            <p className="eyebrow dark">สำรับของคุณ • {selectionDeck.length} ใบ</p>
+            <h2 id="deck-title">เลือกไพ่ที่รู้สึกดึงดูด</h2>
+            <blockquote>“{question}”</blockquote>
+          </div>
+
+          <div className="selection-status" aria-live="polite" aria-atomic="true">
+            <div className="status-copy">
+              <p><strong>เลือกแล้ว {selectedIds.length}</strong><span> / {count} ใบ</span></p>
+              <p className={remaining === 0 ? "ready" : ""}>{remaining === 0 ? "เลือกครบแล้ว" : `ขาดอีก ${remaining} ใบ`}</p>
+            </div>
+            <div className="selection-progress" aria-hidden="true"><span style={{ width: `${(selectedIds.length / count) * 100}%` }} /></div>
+          </div>
+
+          <div className="deck-table" role="group" aria-label={`สำรับไพ่คว่ำ 78 ใบ เลือก ${count} ใบ`}>
+            {selectionDeck.map((card, index) => {
+              const selectedIndex = selectedIds.indexOf(card.id);
+              const isSelected = selectedIndex >= 0;
+              const unavailable = !isSelected && selectedIds.length >= count;
+              return (
+                <button
+                  type="button"
+                  className={`deck-choice tilt-${index % 5}${isSelected ? " selected" : ""}`}
+                  key={card.id}
+                  aria-label={isSelected ? `ไพ่ที่เลือกเป็นใบที่ ${selectedIndex + 1} กดเพื่อยกเลิก` : `เลือกไพ่คว่ำใบที่ ${index + 1}`}
+                  aria-pressed={isSelected}
+                  disabled={unavailable}
+                  onClick={() => toggleCard(card.id)}
+                >
+                  <CardBack />
+                  {isSelected && <span className="chosen-number" aria-hidden="true">{selectedIndex + 1}</span>}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="deck-actions">
+            <button className="reveal-button" type="button" disabled={remaining !== 0 || revealing} onClick={revealSelectedCards}>
+              {remaining === 0 ? `เปิดไพ่ ${count} ใบ` : `เลือกอีก ${remaining} ใบ`}<span aria-hidden="true">✦</span>
+            </button>
+            <button className="text-button" type="button" onClick={backToQuestion}>ย้อนกลับไปแก้คำถาม</button>
+          </div>
+        </section>
       )}
 
       {cards.length > 0 && displayedOverall && (
@@ -562,7 +647,7 @@ export default function Home() {
           )}
 
           <div className="reading-actions">
-            <button className="secondary-button" onClick={predict}>เปิดไพ่ใหม่</button>
+            <button className="secondary-button" onClick={beginSelection}>เลือกไพ่ใหม่</button>
             <button className="text-button" onClick={reset}>ถามคำถามใหม่</button>
           </div>
         </section>
