@@ -1,0 +1,26 @@
+{
+  "name": "ไพ่ยิปซีตอบคำถาม",
+  "short_name": "ไพ่ยิปซี",
+  "description": "ตั้งคำถามและเปิดไพ่ยิปซีเพื่ออ่านคำทำนาย",
+  "lang": "th",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FFF8FC",
+  "theme_color": "#7046E8",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
