@@ -157,7 +157,10 @@ function qualityIssues(reading: Reading, body: ReadingRequest) {
   const interpretiveLanguage = /เพราะ|จึง|ทำให้|ส่งผล|สะท้อนว่า|ชี้ว่า|บอกว่า|ในตำแหน่ง|สำหรับคำถาม|หมายความว่า|แนวโน้ม|โอกาส/;
   for (const card of body.cards) {
     const answer = reading.cards.find((item) => item.index === card.index)?.answer ?? "";
-    const copiedMeaning = answer.replace(/\s/g, "").includes(card.meaning.replace(/\s/g, ""));
+    const compactAnswer = answer.replace(/\s/g, "");
+    const compactMeaning = card.meaning.replace(/\s/g, "");
+    const copiedMeaning = compactAnswer.includes(compactMeaning)
+      && compactAnswer.length < compactMeaning.length + 40;
     if (copiedMeaning || !interpretiveLanguage.test(answer)) {
       issues.push(`ไพ่ใบที่ ${card.index} ยังทวนความหมายแทนการตีความ`);
     }
@@ -207,7 +210,7 @@ async function callGemini(body: ReadingRequest, apiKey: string, repairIssues: st
   return readingSchema.parse(parseJsonObject(content));
 }
 
-async function callGroq(body: ReadingRequest, apiKey: string) {
+async function callGroq(body: ReadingRequest, apiKey: string, repairIssues: string[] = []) {
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -220,7 +223,7 @@ async function callGroq(body: ReadingRequest, apiKey: string) {
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: THAI_INSTRUCTIONS },
-        { role: "user", content: `${buildPrompt(body)}\nรูปแบบ JSON: ${JSON.stringify(OUTPUT_SCHEMA)}` },
+        { role: "user", content: `${buildPrompt(body, repairIssues)}\nรูปแบบ JSON: ${JSON.stringify(OUTPUT_SCHEMA)}` },
       ],
     }),
     signal: AbortSignal.timeout(24_000),
@@ -264,8 +267,12 @@ export async function POST(request: Request) {
 
     if (groqKey) {
       try {
-        const reading = await callGroq(body, groqKey);
-        const issues = qualityIssues(reading, body);
+        let reading = await callGroq(body, groqKey);
+        let issues = qualityIssues(reading, body);
+        if (issues.length) {
+          reading = await callGroq(body, groqKey, issues);
+          issues = qualityIssues(reading, body);
+        }
         if (issues.length) throw new Error(`Groq quality check failed: ${issues.join("; ")}`);
         return Response.json({ ...reading, provider: "groq" }, { headers: { "Cache-Control": "no-store" } });
       } catch (error) {
