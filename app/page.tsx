@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 type Suit = "major" | "wands" | "cups" | "swords" | "pentacles";
@@ -19,6 +19,12 @@ type Card = {
 type DrawnCard = Card & { reversedDraw: boolean };
 type QuestionKind = "love" | "work" | "money" | "health" | "decision" | "general";
 type QuestionIntent = "yesno" | "when" | "why" | "feeling" | "choice" | "outcome";
+type AiReading = {
+  headline: string;
+  reason: string;
+  advice: string;
+  cards: Array<{ index: number; answer: string }>;
+};
 
 const commonsImage = (fileName: string) =>
   `https://commons.wikimedia.org/wiki/Special:Redirect/file/${encodeURIComponent(fileName)}?width=500`;
@@ -340,19 +346,61 @@ export default function Home() {
   const [view, setView] = useState<"overall" | "cards">("overall");
   const [revealing, setRevealing] = useState(false);
   const [phase, setPhase] = useState<"idle" | "shuffle" | "deal">("idle");
+  const [aiReading, setAiReading] = useState<AiReading | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const readingRequestId = useRef(0);
   const kind = useMemo(() => classifyQuestion(question), [question]);
   const intent = useMemo(() => detectIntent(question), [question]);
   const overall = useMemo(() => cards.length ? overallReading(cards, kind, intent) : null, [cards, kind, intent]);
+  const displayedOverall = aiReading ?? overall;
+
+  async function requestAiReading(drawnCards: DrawnCard[], submittedQuestion: string) {
+    const requestId = ++readingRequestId.current;
+    setAiReading(null);
+    setAiLoading(true);
+
+    try {
+      const response = await fetch("/api/reading", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: submittedQuestion,
+          kind: classifyQuestion(submittedQuestion),
+          intent: detectIntent(submittedQuestion),
+          cards: drawnCards.map((card, index) => ({
+            index: index + 1,
+            position: spreads[drawnCards.length][index],
+            name: `${card.nameTh} (${card.nameEn})`,
+            orientation: card.reversedDraw ? "กลับหัว" : "ตั้งตรง",
+            meaning: card.reversedDraw ? card.reversed : card.upright,
+            advice: card.advice,
+          })),
+        }),
+      });
+      if (!response.ok) throw new Error(`AI reading failed with ${response.status}`);
+      const result = await response.json() as AiReading;
+      if (requestId === readingRequestId.current) setAiReading(result);
+    } catch {
+      // The deterministic reading already on screen is the safe fallback.
+    } finally {
+      if (requestId === readingRequestId.current) setAiLoading(false);
+    }
+  }
 
   function predict() {
     if (!question.trim() || revealing) return;
+    const submittedQuestion = question.trim();
     setRevealing(true);
     setPhase("shuffle");
     setCards([]);
+    setAiReading(null);
+    setAiLoading(false);
     window.setTimeout(() => {
+      const drawnCards = drawCards(count);
       setPhase("deal");
-      setCards(drawCards(count));
+      setCards(drawnCards);
       setView("overall");
+      void requestAiReading(drawnCards, submittedQuestion);
     }, 900);
     window.setTimeout(() => {
       setRevealing(false);
@@ -362,8 +410,11 @@ export default function Home() {
   }
 
   function reset() {
+    readingRequestId.current += 1;
     setCards([]);
     setQuestion("");
+    setAiReading(null);
+    setAiLoading(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -431,7 +482,7 @@ export default function Home() {
         </div>
       )}
 
-      {cards.length > 0 && overall && (
+      {cards.length > 0 && displayedOverall && (
         <section id="reading" className="reading-section">
           <div className="reading-head">
             <p className="eyebrow dark">ไพ่ของคุณ • {cards.length} ใบ</p>
@@ -469,12 +520,22 @@ export default function Home() {
 
           {view === "overall" ? (
             <article className="overall-panel" role="tabpanel">
-              <div>
-                <p className="section-kicker">คำตอบแบบตรง ๆ</p>
-                <h3>{overall.headline}</h3>
-                <div className="answer-block"><strong>เพราะอะไร</strong><p>{overall.reason}</p></div>
-                <div className="answer-block advice"><strong>ควรทำอย่างไร</strong><p>{overall.advice}</p></div>
-              </div>
+              {aiLoading ? (
+                <div className="ai-loading" aria-live="polite">
+                  <span aria-hidden="true">✦</span>
+                  <p>กำลังเรียบเรียงคำทำนายภาษาไทย…</p>
+                </div>
+              ) : (
+                <div>
+                  <div className="answer-heading">
+                    <p className="section-kicker">คำตอบแบบตรง ๆ</p>
+                    {aiReading && <span className="ai-badge">AI แปลความหมาย</span>}
+                  </div>
+                  <h3>{displayedOverall.headline}</h3>
+                  <div className="answer-block"><strong>เพราะอะไร</strong><p>{displayedOverall.reason}</p></div>
+                  <div className="answer-block advice"><strong>ควรทำอย่างไร</strong><p>{displayedOverall.advice}</p></div>
+                </div>
+              )}
             </article>
           ) : (
             <div className="individual-list" role="tabpanel">
@@ -487,9 +548,10 @@ export default function Home() {
                     <span className={card.reversedDraw ? "orientation reversed-label" : "orientation"}>{card.reversedDraw ? "ไพ่กลับหัว" : "ไพ่ตั้งตรง"}</span>
                     {(() => {
                       const reading = cardReading(card, spreads[cards.length][index], kind, intent);
+                      const aiAnswer = aiReading?.cards.find((item) => item.index === index + 1)?.answer;
                       return <>
                         <div className="meaning-row"><strong>ไพ่หมายถึงอะไร</strong><p>{reading.meaning}</p></div>
-                        <div className="meaning-row direct"><strong>คำทำนายในตำแหน่งนี้</strong><p>{reading.answer}</p></div>
+                        <div className="meaning-row direct"><strong>คำทำนายในตำแหน่งนี้</strong><p>{aiLoading ? "กำลังเรียบเรียงคำทำนายภาษาไทย…" : aiAnswer ?? reading.answer}</p></div>
                       </>;
                     })()}
                   </div>
