@@ -16,6 +16,7 @@ type Card = {
 };
 type DrawnCard = Card & { reversedDraw: boolean };
 type QuestionKind = "love" | "work" | "money" | "health" | "decision" | "general";
+type QuestionIntent = "yesno" | "when" | "why" | "feeling" | "choice" | "outcome";
 
 const commonsImage = (fileName: string) =>
   `https://commons.wikimedia.org/wiki/Special:Redirect/file/${encodeURIComponent(fileName)}?width=500`;
@@ -105,15 +106,6 @@ const spreads: Record<number, string[]> = {
   10: ["สถานการณ์ปัจจุบัน", "แรงต้าน", "รากของเรื่อง", "สิ่งที่ผ่านมา", "สิ่งที่มุ่งหวัง", "อนาคตใกล้", "ท่าทีของคุณ", "คนและสิ่งแวดล้อม", "ความหวังหรือความกังวล", "แนวโน้มปลายทาง"],
 };
 
-const kindLabels: Record<QuestionKind, string> = {
-  love: "ความรักและความสัมพันธ์",
-  work: "งานและเส้นทางอาชีพ",
-  money: "การเงินและทรัพย์สิน",
-  health: "สุขภาพและการดูแลตนเอง",
-  decision: "การตัดสินใจ",
-  general: "ภาพรวมของเรื่องนี้",
-};
-
 function classifyQuestion(question: string): QuestionKind {
   if (/รัก|แฟน|คู่|เขา|เธอ|สัมพันธ์|แต่งงาน|คืนดี/.test(question)) return "love";
   if (/งาน|หัวหน้า|ตำแหน่ง|เลื่อน|ย้าย|บริษัท|อาชีพ|ธุรกิจ|โปรเจกต์/.test(question)) return "work";
@@ -132,46 +124,103 @@ function drawCards(count: number): DrawnCard[] {
   return pool.slice(0, count).map((card) => ({ ...card, reversedDraw: Math.random() < 0.32 }));
 }
 
-function cardReading(card: DrawnCard, position: string, kind: QuestionKind) {
-  const meaning = card.reversedDraw ? card.reversed : card.upright;
-  const direction = card.reversedDraw ? "ไพ่กลับหัวชี้ว่า" : "ไพ่ตั้งตรงชี้ว่า";
-  const context: Record<QuestionKind, string> = {
-    love: "ในความสัมพันธ์ ควรดูทั้งการกระทำและความรู้สึกที่สื่อออกมาจริง",
-    work: "ในเรื่องงาน ให้พิจารณาคน ระบบ และจังหวะลงมือควบคู่กัน",
-    money: "ด้านการเงินควรอิงตัวเลขจริงและเผื่อความไม่แน่นอน",
-    health: "ด้านสุขภาพ ไพ่ใช้เพื่อสะท้อนใจเท่านั้น ไม่แทนคำแนะนำจากแพทย์",
-    decision: "สำหรับการตัดสินใจนี้ อย่าใช้ความรู้สึกชั่ววูบเป็นเกณฑ์เดียว",
-    general: "นำความหมายนี้ไปเทียบกับสิ่งที่กำลังเกิดขึ้นจริงรอบตัวคุณ",
-  };
-  return `ในตำแหน่ง “${position}” ${direction} ${meaning} ${context[kind]} คำแนะนำคือ ${card.advice}`;
+function detectIntent(question: string): QuestionIntent {
+  if (/รู้สึก|คิดยังไง|คิดอย่างไร|รักเรา|ชอบเรา|มองเรา/.test(question)) return "feeling";
+  if (/เมื่อไหร่|ตอนไหน|อีกนานไหม|กี่วัน|กี่เดือน|ปีไหน/.test(question)) return "when";
+  if (/ทำไม|เพราะอะไร|สาเหตุ/.test(question)) return "why";
+  if (/เลือก.*หรือ|ระหว่าง|อันไหน|ทางไหนดี/.test(question)) return "choice";
+  if (/ไหม|หรือไม่|ได้ไหม|ดีไหม|ควรไหม|มีโอกาส/.test(question)) return "yesno";
+  return "outcome";
 }
 
-function overallReading(cards: DrawnCard[], question: string, kind: QuestionKind) {
-  const uprightCount = cards.filter((card) => !card.reversedDraw).length;
+function cardScore(card: DrawnCard) {
+  const bright = ["The Magician", "The Empress", "The Lovers", "The Chariot", "Strength", "Wheel of Fortune", "Temperance", "The Star", "The Sun", "Judgement", "The World"];
+  const difficult = ["The Devil", "The Tower", "The Moon"];
+  let score = bright.includes(card.nameEn) ? 1.4 : difficult.includes(card.nameEn) ? -1.2 : 0.45;
+  if (card.suit !== "major") {
+    const rank = Number(card.id.split("-")[1]);
+    score = [1, 3, 6, 9].includes(rank) ? 1 : [5, 7, 10].includes(rank) ? -0.35 : 0.45;
+    if (card.suit === "swords" && [3, 5, 8, 9, 10].includes(rank)) score = -1;
+  }
+  return card.reversedDraw ? -score : score;
+}
+
+function answerByContext(score: number, kind: QuestionKind) {
+  const positive: Record<QuestionKind, string> = {
+    love: "ความสัมพันธ์ยังมีพื้นที่ให้พัฒนา หากทั้งสองฝ่ายสื่อสารและแสดงออกให้ชัด",
+    work: "เรื่องงานมีทางเดินต่อและมีโอกาสให้คุณแสดงศักยภาพ",
+    money: "แนวโน้มด้านเงินดีขึ้นได้ แต่ควรเดินตามแผนและตัวเลขจริง",
+    health: "แนวโน้มการฟื้นสมดุลเป็นบวก หากดูแลต่อเนื่องและรับคำแนะนำที่เหมาะสม",
+    decision: "ทางเลือกนี้ไปต่อได้ และมีเหตุผลรองรับมากกว่าความกลัว",
+    general: "สถานการณ์มีช่องให้คืบหน้าและคลี่คลายไปในทางที่ดีขึ้น",
+  };
+  const cautious: Record<QuestionKind, string> = {
+    love: "ความรู้สึกยังมีอยู่ แต่ความสัมพันธ์ต้องการความชัดเจนมากกว่าการคาดเดา",
+    work: "ไปต่อได้แบบมีเงื่อนไข ต้องจัดการรายละเอียด คน หรือระบบที่ยังไม่ลงตัว",
+    money: "ยังไม่ควรรีบผูกมัด ควรตรวจตัวเลข ภาระ และความเสี่ยงให้ครบ",
+    health: "ควรฟังสัญญาณร่างกายและติดตามอาการจริง ไม่ใช้ไพ่แทนการประเมินทางการแพทย์",
+    decision: "ยังไม่ใช่จังหวะตอบตกลงทันที ควรขอข้อมูลเพิ่มก่อนเลือก",
+    general: "เรื่องนี้ยังเปลี่ยนได้ ผลจึงขึ้นอยู่กับการจัดการปัจจัยที่ค้างอยู่",
+  };
+  const negative: Record<QuestionKind, string> = {
+    love: "ตอนนี้ความสัมพันธ์มีแรงต้านหรือความไม่ชัดเจน ไม่ควรฝืนให้ได้คำตอบทันที",
+    work: "จังหวะงานยังติดขัด และมีต้นทุนแฝงที่ควรแก้ก่อนเดินหน้า",
+    money: "ความเสี่ยงมากกว่าผลตอบแทนในจังหวะนี้ จึงควรชะลอและกันเงินสำรอง",
+    health: "ควรหยุดฝืนและให้ความสำคัญกับการตรวจหรือคำแนะนำจากผู้เชี่ยวชาญ",
+    decision: "คำตอบของไพ่เอนมาทางชะลอหรือไม่เลือกทางนี้ในสภาพปัจจุบัน",
+    general: "สถานการณ์ยังไม่เอื้อ และการเร่งจะเพิ่มปัญหามากกว่าทำให้คลี่คลาย",
+  };
+  return score > 0.65 ? positive[kind] : score < -0.35 ? negative[kind] : cautious[kind];
+}
+
+function cardReading(card: DrawnCard, position: string, kind: QuestionKind, intent: QuestionIntent) {
+  const score = cardScore(card);
+  const meaning = card.reversedDraw ? card.reversed : card.upright;
+  const contextAnswer = answerByContext(score, kind);
+  const role = /อุปสรรค|แรงต้าน|กังวล/.test(position)
+    ? `สิ่งที่ขวางคำถามนี้คือ ${meaning}`
+    : /คำแนะนำ|ท่าที/.test(position)
+      ? `สิ่งที่ควรทำกับคำถามนี้คือ ${card.advice}`
+      : /ผลลัพธ์|ปลายทาง|อนาคต/.test(position)
+        ? `ในแนวโน้มข้างหน้า ${contextAnswer}`
+        : `ในส่วน “${position}” ${contextAnswer}`;
+  const intentLead: Record<QuestionIntent, string> = {
+    yesno: score > .65 ? "ไพ่ใบนี้สนับสนุนคำตอบว่า “มีโอกาส/ใช่”" : score < -.35 ? "ไพ่ใบนี้เอนมาทาง “ยังไม่ใช่ในตอนนี้”" : "ไพ่ใบนี้ตอบว่า “เป็นไปได้ แต่มีเงื่อนไข”",
+    when: score > .65 ? "จังหวะมีแนวโน้มขยับเร็วขึ้นเมื่อคุณเริ่มลงมือ" : "จังหวะยังไม่ชัดและไม่ควรกำหนดวันจากไพ่ใบนี้",
+    why: `สาเหตุที่ไพ่ชี้ให้เห็นคือ ${meaning}`,
+    feeling: score > .65 ? "ความรู้สึกมีด้านบวกและยังเปิดรับ" : score < -.35 ? "ความรู้สึกยังปิดกั้นหรือไม่พร้อม" : "ความรู้สึกมีอยู่แต่ยังลังเลและไม่แสดงออกทั้งหมด",
+    choice: score > .65 ? "ทางเลือกที่ไพ่ใบนี้แทนมีแรงสนับสนุน" : score < -.35 ? "ทางเลือกที่ไพ่ใบนี้แทนมีข้อเสียหรือความเสี่ยงเด่น" : "ทางเลือกนี้ยังต้องมีข้อมูลเพิ่ม",
+    outcome: score > .65 ? "ไพ่ใบนี้เพิ่มโอกาสให้เรื่องเดินหน้า" : score < -.35 ? "ไพ่ใบนี้เตือนว่าผลอาจไม่เป็นตามหวังหากไม่เปลี่ยนวิธี" : "ผลยังไม่ตายตัวและขึ้นอยู่กับการตัดสินใจต่อจากนี้",
+  };
+  return { meaning, answer: `${intentLead[intent]} — ${role}` };
+}
+
+function overallReading(cards: DrawnCard[], question: string, kind: QuestionKind, intent: QuestionIntent) {
+  const score = cards.reduce((sum, card, index) => sum + cardScore(card) * (index === cards.length - 1 ? 1.45 : 1), 0) / cards.length;
   const majorCount = cards.filter((card) => card.suit === "major").length;
   const suitCounts = cards.reduce<Record<string, number>>((acc, card) => {
     if (card.suit !== "major") acc[card.suit] = (acc[card.suit] || 0) + 1;
     return acc;
   }, {});
-  const dominant = Object.entries(suitCounts).sort((a, b) => b[1] - a[1])[0]?.[0] as Exclude<Suit, "major"> | undefined;
+  const rankedSuits = Object.entries(suitCounts).sort((a, b) => b[1] - a[1]);
+  const dominant = (rankedSuits[0]?.[1] > (cards.length === 1 ? 0 : 1) ? rankedSuits[0][0] : undefined) as Exclude<Suit, "major"> | undefined;
   const last = cards[cards.length - 1];
-  const tone = uprightCount / cards.length >= 0.7
-    ? "ภาพรวมเปิดทางไปในเชิงบวก หากลงมืออย่างมีสติ"
-    : uprightCount / cards.length >= 0.4
-      ? "ภาพรวมมีทั้งโอกาสและข้อจำกัด จึงยังไม่ใช่คำตอบแบบได้หรือไม่ได้ทันที"
-      : "ภาพรวมแนะนำให้ชะลอ ตรวจข้อมูล และแก้สิ่งติดขัดก่อนเดินหน้าเต็มกำลัง";
+  const direct: Record<QuestionIntent, string> = {
+    yesno: score > .55 ? "คำตอบคือ “มีโอกาสเป็นไปได้”" : score < -.3 ? "คำตอบตอนนี้คือ “ยังไม่ควรหรือยังไม่ใช่”" : "คำตอบคือ “เป็นไปได้ แต่ยังมีเงื่อนไข”",
+    when: score > .55 ? "เรื่องนี้มีแนวโน้มเริ่มขยับในระยะใกล้" : score < -.3 ? "เรื่องนี้ยังล่าช้าและไม่ใช่จังหวะเร็ว ๆ นี้" : "จังหวะยังไม่แน่นอน ต้องรอเงื่อนไขหนึ่งคลี่คลายก่อน",
+    why: `สาเหตุหลักมาจาก ${last.reversedDraw ? last.reversed : last.upright}`,
+    feeling: score > .55 ? "ความรู้สึกโดยรวมเป็นบวกและยังเปิดรับคุณ" : score < -.3 ? "อีกฝ่ายยังปิดกั้นหรือไม่พร้อมเดินหน้าความสัมพันธ์" : "อีกฝ่ายมีความรู้สึก แต่ยังลังเลและไม่ได้แสดงออกทั้งหมด",
+    choice: score > .55 ? "ทางเลือกนี้มีแรงสนับสนุนและไปต่อได้" : score < -.3 ? "ทางเลือกนี้มีข้อเสียเด่น จึงไม่ควรรีบเลือก" : "ทางเลือกนี้ไปต่อได้แบบมีเงื่อนไข ควรเปรียบเทียบข้อมูลเพิ่ม",
+    outcome: score > .55 ? "แนวโน้มคือเรื่องจะคืบหน้าและให้ผลที่ดีขึ้น" : score < -.3 ? "แนวโน้มยังติดขัด และผลอาจไม่เป็นอย่างหวังถ้าใช้วิธีเดิม" : "แนวโน้มยังเปิดกว้าง ผลขึ้นอยู่กับสิ่งที่คุณทำต่อจากนี้",
+  };
   const major = majorCount >= Math.max(2, Math.ceil(cards.length / 3))
-    ? "ไพ่ชุดใหญ่ปรากฏเด่น แปลว่าเรื่องนี้อาจเป็นจุดเปลี่ยนหรือบทเรียนสำคัญกว่าปัญหาระยะสั้น"
-    : "ไพ่เน้นเรื่องที่จัดการได้ผ่านพฤติกรรม การสื่อสาร และการวางแผนในชีวิตประจำวัน";
-  const suit = dominant ? `พลังของชุด${suits[dominant].th}เด่น จึงควรให้น้ำหนักกับ${suits[dominant].focus}` : "พลังของไพ่กระจายหลายด้าน จึงควรมองเรื่องนี้แบบรอบด้าน";
-  const outcome = `${last.nameTh}${last.reversedDraw ? "กลับหัว" : "ตั้งตรง"}อยู่ปลายทาง จึงสรุปแนวโน้มว่า ${last.reversedDraw ? last.reversed : last.upright}`;
+    ? "ไพ่ชุดใหญ่เด่น แสดงว่าเรื่องนี้มีผลต่อทิศทางชีวิตหรือการตัดสินใจระยะยาว"
+    : "ไพ่ส่วนใหญ่สะท้อนปัจจัยที่คุณยังปรับได้จากการกระทำและการสื่อสาร";
+  const suit = dominant ? `ชุด${suits[dominant].th}เด่น จึงต้องให้น้ำหนักกับ${suits[dominant].focus}` : `ไพ่กระจายหลายชุด จึงต้องมองทั้งเหตุผล ความรู้สึก และผลที่เกิดขึ้นจริง`;
   return {
-    headline: tone,
-    paragraphs: [
-      `สำหรับคำถาม “${question}” ไพ่กำลังสะท้อนเรื่อง${kindLabels[kind]} ${major}`,
-      `${suit} ${outcome}`,
-      `คำตอบที่นำไปใช้ได้ตอนนี้คือ ${last.advice} แล้วสังเกตผลจริงก่อนตัดสินใจขั้นถัดไป`,
-    ],
+    headline: direct[intent],
+    reason: `${major} ${suit} ไพ่ปลายทางคือ ${last.nameTh}${last.reversedDraw ? "กลับหัว" : "ตั้งตรง"} ซึ่งหมายถึง ${last.reversedDraw ? last.reversed : last.upright}`,
+    advice: `สำหรับคำถาม “${question}” สิ่งที่ควรทำตอนนี้คือ ${last.advice}`,
   };
 }
 
@@ -191,19 +240,26 @@ export default function Home() {
   const [cards, setCards] = useState<DrawnCard[]>([]);
   const [view, setView] = useState<"overall" | "cards">("overall");
   const [revealing, setRevealing] = useState(false);
+  const [phase, setPhase] = useState<"idle" | "shuffle" | "deal">("idle");
   const kind = useMemo(() => classifyQuestion(question), [question]);
-  const overall = useMemo(() => cards.length ? overallReading(cards, question, kind) : null, [cards, question, kind]);
+  const intent = useMemo(() => detectIntent(question), [question]);
+  const overall = useMemo(() => cards.length ? overallReading(cards, question, kind, intent) : null, [cards, question, kind, intent]);
 
   function predict() {
     if (!question.trim() || revealing) return;
     setRevealing(true);
+    setPhase("shuffle");
     setCards([]);
     window.setTimeout(() => {
+      setPhase("deal");
       setCards(drawCards(count));
       setView("overall");
+    }, 900);
+    window.setTimeout(() => {
       setRevealing(false);
-      window.setTimeout(() => document.getElementById("reading")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
-    }, 650);
+      setPhase("idle");
+      window.setTimeout(() => document.getElementById("reading")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    }, 1650);
   }
 
   function reset() {
@@ -215,31 +271,25 @@ export default function Home() {
   return (
     <main>
       <section className="hero" aria-labelledby="page-title">
-        <div className="stars" aria-hidden="true" />
         <nav className="nav-shell">
-          <a className="brand" href="#top" aria-label="หน้าแรก ไพ่ยิปซีตอบคำถาม"><span>☾</span> ไพ่ยิปซี</a>
-          <span className="private-note">ไม่เก็บคำถามของคุณ</span>
+          <a className="brand" href="#top" aria-label="หน้าแรก ไพ่ยิปซีตอบคำถาม"><span>✦</span> ไพ่ยิปซี</a>
         </nav>
 
         <div id="top" className="hero-grid">
           <div className="hero-copy">
-            <p className="eyebrow">ตั้งจิต • ตั้งคำถาม • เปิดไพ่</p>
-            <h1 id="page-title">คำตอบอาจซ่อนอยู่<br />ในไพ่ที่คุณเลือก</h1>
-            <p className="intro">ถามหนึ่งเรื่องที่อยู่ในใจ แล้วให้ไพ่ทั้ง 78 ใบช่วยสะท้อนสถานการณ์ มุมที่อาจมองข้าม และแนวทางต่อไป</p>
-            <div className="trust-row" aria-label="ข้อมูลบริการ">
-              <span>✦ ฟรี</span><span>✦ ไม่ต้องสมัคร</span><span>✦ อ่านได้ทันที</span>
-            </div>
+            <p className="eyebrow">TAROT READING</p>
+            <h1 id="page-title">ถามไพ่<br />หนึ่งคำถาม</h1>
+            <p className="intro">เขียนเรื่องที่อยากรู้ แล้วเลือกจำนวนไพ่</p>
           </div>
 
           <div className="card-fan" aria-hidden="true">
             <div className="fan-card fan-left"><CardBack /></div>
             <div className="fan-card fan-center"><CardBack /></div>
             <div className="fan-card fan-right"><CardBack /></div>
-            <div className="orbit orbit-one" /><div className="orbit orbit-two" />
           </div>
 
           <form className="question-panel" onSubmit={(event) => { event.preventDefault(); predict(); }}>
-            <div className="step-label"><span>01</span><p>เขียนคำถามของคุณ</p></div>
+            <div className="step-label"><p>คำถามของคุณ</p></div>
             <label className="sr-only" htmlFor="question">คำถามที่ต้องการถามไพ่</label>
             <textarea
               id="question"
@@ -251,7 +301,7 @@ export default function Home() {
             />
             <div className="counter">{question.length}/180</div>
 
-            <div className="step-label second"><span>02</span><p>เลือกจำนวนไพ่</p></div>
+            <div className="step-label second"><p>จำนวนไพ่</p></div>
             <div className="count-grid" role="radiogroup" aria-label="จำนวนไพ่">
               {[1, 3, 5, 10].map((option) => (
                 <button
@@ -263,30 +313,29 @@ export default function Home() {
                   onClick={() => setCount(option)}
                 >
                   <strong>{option}</strong><span>ใบ</span>
-                  <small>{option === 1 ? "คำตอบตรง" : option === 3 ? "กระชับพอดี" : option === 5 ? "รอบด้าน" : "ลงลึก"}</small>
+                  <small>{option === 1 ? "ตรง" : option === 3 ? "พอดี" : option === 5 ? "ละเอียด" : "ลึก"}</small>
                 </button>
               ))}
             </div>
             <button className="predict-button" type="submit" disabled={!question.trim() || revealing}>
-              {revealing ? "กำลังสับไพ่…" : "เปิดไพ่ทำนาย"}<span aria-hidden="true">→</span>
+              {revealing ? "กำลังเปิดไพ่…" : "เริ่มทำนาย"}<span aria-hidden="true">✦</span>
             </button>
-            <p className="hint">หลีกเลี่ยงคำถามเดิมซ้ำ ๆ ในช่วงเวลาใกล้กัน เพื่อให้คุณได้ทบทวนคำตอบอย่างเต็มที่</p>
           </form>
         </div>
       </section>
 
       {revealing && (
-        <section className="shuffle-stage" aria-live="polite">
-          <div className="shuffle-cards"><CardBack small /><CardBack small /><CardBack small /></div>
-          <p>กำลังสับไพ่และวางสำรับสำหรับคำถามของคุณ…</p>
-        </section>
+        <div className={`ritual-overlay ${phase}`} aria-live="polite" aria-label={phase === "shuffle" ? "กำลังสับไพ่" : "กำลังวางไพ่"}>
+          <div className="ritual-glow" />
+          <div className="shuffle-cards"><CardBack small /><CardBack small /><CardBack small /><CardBack small /><CardBack small /></div>
+          <p>{phase === "shuffle" ? "กำลังสับไพ่" : "กำลังวางไพ่"}</p>
+        </div>
       )}
 
       {cards.length > 0 && overall && (
         <section id="reading" className="reading-section">
           <div className="reading-head">
-            <p className="eyebrow dark">ผลการเปิดไพ่ {cards.length} ใบ</p>
-            <h2>คำถามของคุณ</h2>
+            <p className="eyebrow dark">ไพ่ของคุณ • {cards.length} ใบ</p>
             <blockquote>“{question}”</blockquote>
             <div className="view-tabs" role="tablist" aria-label="รูปแบบคำทำนาย">
               <button role="tab" aria-selected={view === "overall"} className={view === "overall" ? "active" : ""} onClick={() => setView("overall")}>อ่านภาพรวม</button>
@@ -305,8 +354,13 @@ export default function Home() {
                 aria-label={`ดูคำทำนาย ${card.nameTh} ${card.reversedDraw ? "กลับหัว" : "ตั้งตรง"}`}
               >
                 <span className="position-number">{index + 1}</span>
-                <div className={card.reversedDraw ? "card-image reversed" : "card-image"}>
-                  <img src={card.image} alt={`ไพ่ ${card.nameTh}`} referrerPolicy="no-referrer" />
+                <div className="flip-card">
+                  <div className="flip-card-inner">
+                    <div className="flip-card-back"><CardBack /></div>
+                    <div className={card.reversedDraw ? "card-image reversed" : "card-image"}>
+                      <img src={card.image} alt={`ไพ่ ${card.nameTh}`} referrerPolicy="no-referrer" />
+                    </div>
+                  </div>
                 </div>
                 <strong>{card.nameTh}</strong>
                 <small>{card.reversedDraw ? "กลับหัว" : "ตั้งตรง"} • {spreads[cards.length][index]}</small>
@@ -316,11 +370,11 @@ export default function Home() {
 
           {view === "overall" ? (
             <article className="overall-panel" role="tabpanel">
-              <div className="reading-icon">✦</div>
               <div>
-                <p className="section-kicker">ภาพรวมจากไพ่ทุกใบ</p>
+                <p className="section-kicker">คำตอบต่อคำถามของคุณ</p>
                 <h3>{overall.headline}</h3>
-                {overall.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+                <div className="answer-block"><strong>เพราะอะไร</strong><p>{overall.reason}</p></div>
+                <div className="answer-block advice"><strong>ควรทำอย่างไร</strong><p>{overall.advice}</p></div>
               </div>
             </article>
           ) : (
@@ -328,11 +382,17 @@ export default function Home() {
               {cards.map((card, index) => (
                 <article id={`card-${index}`} className="individual-card" key={card.id}>
                   <div className={card.reversedDraw ? "mini-card reversed" : "mini-card"}><img src={card.image} alt="" referrerPolicy="no-referrer" /></div>
-                  <div>
+                  <div className="card-explanation">
                     <p className="section-kicker">ใบที่ {index + 1} • {spreads[cards.length][index]}</p>
                     <h3>{card.nameTh} <span>{card.nameEn}</span></h3>
                     <span className={card.reversedDraw ? "orientation reversed-label" : "orientation"}>{card.reversedDraw ? "ไพ่กลับหัว" : "ไพ่ตั้งตรง"}</span>
-                    <p>{cardReading(card, spreads[cards.length][index], kind)}</p>
+                    {(() => {
+                      const reading = cardReading(card, spreads[cards.length][index], kind, intent);
+                      return <>
+                        <div className="meaning-row"><strong>ไพ่หมายถึงอะไร</strong><p>{reading.meaning}</p></div>
+                        <div className="meaning-row direct"><strong>คำตอบต่อคำถาม</strong><p>{reading.answer}</p></div>
+                      </>;
+                    })()}
                   </div>
                 </article>
               ))}
@@ -340,16 +400,14 @@ export default function Home() {
           )}
 
           <div className="reading-actions">
-            <button className="secondary-button" onClick={() => { setCards(drawCards(count)); setView("overall"); }}>สับและเปิดใหม่</button>
+            <button className="secondary-button" onClick={predict}>เปิดไพ่ใหม่</button>
             <button className="text-button" onClick={reset}>ถามคำถามใหม่</button>
           </div>
         </section>
       )}
 
       <footer>
-        <div><strong>☾ ไพ่ยิปซีตอบคำถาม</strong><p>พื้นที่เล็ก ๆ สำหรับทบทวนเรื่องที่อยู่ในใจ</p></div>
-        <p>ไพ่เป็นเครื่องมือเพื่อการสะท้อนตนเอง ไม่ใช่ข้อเท็จจริงหรือคำแนะนำทางการแพทย์ กฎหมาย และการเงิน</p>
-        <p className="credit">ภาพไพ่ Rider–Waite–Smith ต้นฉบับ ค.ศ. 1909 • Public Domain • จาก Wikimedia Commons</p>
+        <p>ใช้ไพ่เพื่อทบทวนตนเอง ไม่แทนคำแนะนำทางการแพทย์ กฎหมาย หรือการเงิน</p>
       </footer>
     </main>
   );
