@@ -24,6 +24,7 @@ type AiReading = {
   reason: string;
   advice: string;
   cards: Array<{ index: number; answer: string }>;
+  provider?: "gemini" | "groq";
 };
 
 const commonsImage = (fileName: string) =>
@@ -529,7 +530,7 @@ export default function Home() {
                 <div>
                   <div className="answer-heading">
                     <p className="section-kicker">คำตอบแบบตรง ๆ</p>
-                    {aiReading && <span className="ai-badge">AI แปลความหมาย</span>}
+                    {aiReading && <span className="ai-badge">{aiReading.provider === "gemini" ? "Gemini ตีความไพ่" : "AI ตีความไพ่"}</span>}
                   </div>
                   <h3>{displayedOverall.headline}</h3>
                   <div className="answer-block"><strong>เพราะอะไร</strong><p>{displayedOverall.reason}</p></div>
