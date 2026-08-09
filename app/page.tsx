@@ -356,6 +356,7 @@ export default function Home() {
   const intent = useMemo(() => detectIntent(question), [question]);
   const overall = useMemo(() => cards.length ? overallReading(cards, kind, intent) : null, [cards, kind, intent]);
   const displayedOverall = aiReading ?? overall;
+  const fannedCards = useMemo(() => selectionDeck.slice(0, 24), [selectionDeck]);
   const remaining = Math.max(0, count - selectedIds.length);
 
   async function requestAiReading(drawnCards: DrawnCard[], submittedQuestion: string) {
@@ -537,16 +538,28 @@ export default function Home() {
             <div className="selection-progress" aria-hidden="true"><span style={{ width: `${(selectedIds.length / count) * 100}%` }} /></div>
           </div>
 
-          <div className="deck-table" role="group" aria-label={`สำรับไพ่คว่ำ 78 ใบ เลือก ${count} ใบ`}>
-            {selectionDeck.map((card, index) => {
+          <div className="fan-deck" role="group" aria-label={`ไพ่คว่ำที่คลี่ให้เลือก ${fannedCards.length} ใบจากสำรับ เลือก ${count} ใบ`}>
+            <div className="fan-aura" aria-hidden="true"><span>✦</span></div>
+            {fannedCards.map((card, index) => {
               const selectedIndex = selectedIds.indexOf(card.id);
               const isSelected = selectedIndex >= 0;
               const unavailable = !isSelected && selectedIds.length >= count;
+              const progress = index / Math.max(1, fannedCards.length - 1);
+              const angle = -76 + (progress * 152);
+              const radians = angle * (Math.PI / 180);
+              const fanStyle = {
+                "--fan-angle": `${angle}deg`,
+                "--fan-x": `${50 + (Math.sin(radians) * 43)}%`,
+                "--fan-y": `${25 + ((1 - Math.cos(radians)) * 50)}%`,
+                "--fan-delay": `${index * 14}ms`,
+                "--fan-layer": index + 1,
+              } as CSSProperties;
               return (
                 <button
                   type="button"
-                  className={`deck-choice tilt-${index % 5}${isSelected ? " selected" : ""}`}
+                  className={`deck-choice${isSelected ? " selected" : ""}`}
                   key={card.id}
+                  style={fanStyle}
                   aria-label={isSelected ? `ไพ่ที่เลือกเป็นใบที่ ${selectedIndex + 1} กดเพื่อยกเลิก` : `เลือกไพ่คว่ำใบที่ ${index + 1}`}
                   aria-pressed={isSelected}
                   disabled={unavailable}
@@ -563,6 +576,7 @@ export default function Home() {
             <button className="reveal-button" type="button" disabled={remaining !== 0 || revealing} onClick={revealSelectedCards}>
               {remaining === 0 ? `เปิดไพ่ ${count} ใบ` : `เลือกอีก ${remaining} ใบ`}<span aria-hidden="true">✦</span>
             </button>
+            <button className="text-button" type="button" onClick={beginSelection}>สับและคลี่ใหม่</button>
             <button className="text-button" type="button" onClick={backToQuestion}>ย้อนกลับไปแก้คำถาม</button>
           </div>
         </section>
