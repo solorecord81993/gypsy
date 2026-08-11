@@ -28,6 +28,8 @@ type AiReading = {
   astrology?: AstrologyFacts;
   provider?: "gemini" | "groq";
 };
+
+const AI_READING_ENDPOINT = "https://gypsy-woad.vercel.app/api/reading";
 type AstrologyFacts = {
   birthLabel: string;
   precision: "date" | "time" | "full";
@@ -424,7 +426,7 @@ export default function Home() {
     setAiLoading(true);
 
     try {
-      const response = await fetch("/api/reading", {
+      const response = await fetch(AI_READING_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
