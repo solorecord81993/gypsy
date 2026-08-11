@@ -24,7 +24,17 @@ type AiReading = {
   reason: string;
   advice: string;
   cards: Array<{ index: number; answer: string }>;
+  systems?: { tarot: string; thai: string; chinese: string; western: string };
+  astrology?: AstrologyFacts;
   provider?: "gemini" | "groq";
+};
+type AstrologyFacts = {
+  birthLabel: string;
+  precision: "date" | "time" | "full";
+  western: { title: string; facts: string[] };
+  thai: { title: string; facts: string[] };
+  chinese: { title: string; facts: string[] };
+  notes: string[];
 };
 
 const commonsImage = (fileName: string) =>
@@ -385,6 +395,11 @@ function CardBack({ small = false }: { small?: boolean }) {
 export default function Home() {
   const [question, setQuestion] = useState("");
   const [count, setCount] = useState(3);
+  const [useBirthDetails, setUseBirthDetails] = useState(false);
+  const [birthDate, setBirthDate] = useState("");
+  const [birthTime, setBirthTime] = useState("");
+  const [birthPlace, setBirthPlace] = useState("");
+  const [timezoneOffset, setTimezoneOffset] = useState(7);
   const [cards, setCards] = useState<DrawnCard[]>([]);
   const [selectionDeck, setSelectionDeck] = useState<DrawnCard[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -392,6 +407,7 @@ export default function Home() {
   const [revealing, setRevealing] = useState(false);
   const [phase, setPhase] = useState<"idle" | "shuffle" | "deal">("idle");
   const [aiReading, setAiReading] = useState<AiReading | null>(null);
+  const [astrologyFacts, setAstrologyFacts] = useState<AstrologyFacts | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const readingRequestId = useRef(0);
   const kind = useMemo(() => classifyQuestion(question), [question]);
@@ -404,6 +420,7 @@ export default function Home() {
   async function requestAiReading(drawnCards: DrawnCard[], submittedQuestion: string) {
     const requestId = ++readingRequestId.current;
     setAiReading(null);
+    setAstrologyFacts(null);
     setAiLoading(true);
 
     try {
@@ -414,6 +431,12 @@ export default function Home() {
           question: submittedQuestion,
           kind: classifyQuestion(submittedQuestion),
           intent: detectIntent(submittedQuestion),
+          birth: useBirthDetails && birthDate ? {
+            date: birthDate,
+            time: birthTime || undefined,
+            place: birthPlace.trim() || undefined,
+            timezoneOffset,
+          } : undefined,
           cards: drawnCards.map((card, index) => ({
             index: index + 1,
             position: spreads[drawnCards.length][index],
@@ -424,8 +447,9 @@ export default function Home() {
           })),
         }),
       });
-      if (!response.ok) throw new Error(`AI reading failed with ${response.status}`);
-      const result = await response.json() as AiReading;
+      const result = await response.json() as AiReading & { error?: string };
+      if (requestId === readingRequestId.current && result.astrology) setAstrologyFacts(result.astrology);
+      if (!response.ok) throw new Error(result.error || `AI reading failed with ${response.status}`);
       if (requestId === readingRequestId.current) setAiReading(result);
     } catch {
       // The deterministic reading already on screen is the safe fallback.
@@ -443,6 +467,7 @@ export default function Home() {
     setSelectionDeck([]);
     setSelectedIds([]);
     setAiReading(null);
+    setAstrologyFacts(null);
     setAiLoading(false);
     window.setTimeout(() => {
       setSelectionDeck(shuffleDeck());
@@ -495,7 +520,13 @@ export default function Home() {
     setSelectionDeck([]);
     setSelectedIds([]);
     setQuestion("");
+    setUseBirthDetails(false);
+    setBirthDate("");
+    setBirthTime("");
+    setBirthPlace("");
+    setTimezoneOffset(7);
     setAiReading(null);
+    setAstrologyFacts(null);
     setAiLoading(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -509,9 +540,9 @@ export default function Home() {
 
         <div id="top" className="hero-grid">
           <div className="hero-copy">
-            <p className="eyebrow">TAROT READING</p>
-            <h1 id="page-title">ถามไพ่<br />หนึ่งคำถาม</h1>
-            <p className="intro">เขียนเรื่องที่อยากรู้ แล้วเลือกไพ่จากสำรับด้วยตัวเอง</p>
+            <p className="eyebrow">TAROT × THREE ASTROLOGIES</p>
+            <h1 id="page-title">ถามดวง<br />หนึ่งคำถาม</h1>
+            <p className="intro">เลือกไพ่ด้วยตัวเอง และเพิ่มวันเกิดได้ถ้าต้องการดูร่วม 3 ศาสตร์</p>
           </div>
 
           <div className="card-fan" aria-hidden="true">
@@ -549,6 +580,30 @@ export default function Home() {
                 </button>
               ))}
             </div>
+
+            <div className="birth-option">
+              <button
+                className={useBirthDetails ? "birth-toggle active" : "birth-toggle"}
+                type="button"
+                aria-expanded={useBirthDetails}
+                onClick={() => setUseBirthDetails((current) => !current)}
+              >
+                <span aria-hidden="true">◎</span>
+                <span><strong>เพิ่มข้อมูลเกิด</strong><small>ดูร่วมกับไทย • จีน • สากล</small></span>
+                <b>{useBirthDetails ? "−" : "+"}</b>
+              </button>
+              {useBirthDetails && (
+                <div className="birth-fields">
+                  <label><span>วันเกิด <em>จำเป็นสำหรับ 3 ศาสตร์</em></span><input type="date" value={birthDate} max={new Date().toISOString().slice(0, 10)} onInput={(event) => setBirthDate(event.currentTarget.value)} /></label>
+                  <label><span>เวลาเกิด <em>ไม่ทราบเว้นได้</em></span><input type="time" value={birthTime} onInput={(event) => setBirthTime(event.currentTarget.value)} /></label>
+                  <label className="place-field"><span>สถานที่เกิด <em>ไม่ทราบเว้นได้</em></span><input type="text" value={birthPlace} maxLength={160} placeholder="เช่น รพ.ราชวิถี กรุงเทพฯ" onChange={(event) => setBirthPlace(event.target.value)} /></label>
+                  <label><span>เขตเวลา</span><select value={timezoneOffset} onChange={(event) => setTimezoneOffset(Number(event.target.value))}>
+                    {[-12, -10, -8, -5, 0, 5.5, 6.5, 7, 8, 9, 10, 12, 14].map((offset) => <option key={offset} value={offset}>UTC{offset >= 0 ? "+" : ""}{offset}</option>)}
+                  </select></label>
+                  <p>ถ้าเกิดในประเทศไทย ใช้ UTC+7 • ไม่กรอกเวลา ระบบจะไม่เดาลัคนาหรือเสาเวลา</p>
+                </div>
+              )}
+            </div>
             <button className="predict-button" type="submit" disabled={!question.trim() || revealing}>
               {revealing ? "กำลังสับไพ่…" : "ไปเลือกไพ่"}<span aria-hidden="true">✦</span>
             </button>
@@ -567,7 +622,7 @@ export default function Home() {
       {selectionDeck.length > 0 && (
         <section id="choose-cards" className="deck-section" aria-labelledby="deck-title">
           <div className="deck-heading">
-            <p className="eyebrow dark">สำรับของคุณ • {selectionDeck.length} ใบ</p>
+            <p className="eyebrow dark">สำรับของคุณ • {selectionDeck.length} ใบ{useBirthDetails && birthDate ? " • ผสาน 3 ศาสตร์" : ""}</p>
             <h2 id="deck-title">เลือกไพ่ที่รู้สึกดึงดูด</h2>
             <blockquote>“{question}”</blockquote>
           </div>
@@ -661,17 +716,18 @@ export default function Home() {
           </div>
 
           {view === "overall" ? (
+            <>
             <article className="overall-panel" role="tabpanel">
               {aiLoading ? (
                 <div className="ai-loading" aria-live="polite">
                   <span aria-hidden="true">✦</span>
-                  <p>กำลังเรียบเรียงคำทำนายภาษาไทย…</p>
+                  <p>{useBirthDetails && birthDate ? "กำลังประมวลไพ่และดวงทั้ง 3 ศาสตร์…" : "กำลังเรียบเรียงคำทำนายภาษาไทย…"}</p>
                 </div>
               ) : (
                 <div>
                   <div className="answer-heading">
                     <p className="section-kicker">คำตอบแบบตรง ๆ</p>
-                    {aiReading && <span className="ai-badge">{aiReading.provider === "gemini" ? "Gemini ตีความไพ่" : "AI ตีความไพ่"}</span>}
+                    {aiReading && <span className="ai-badge">{astrologyFacts ? "AI ประมวล 4 ศาสตร์" : aiReading.provider === "gemini" ? "Gemini ตีความไพ่" : "AI ตีความไพ่"}</span>}
                   </div>
                   <h3>{displayedOverall.headline}</h3>
                   <div className="answer-block"><strong>เพราะอะไร</strong><p>{displayedOverall.reason}</p></div>
@@ -679,6 +735,30 @@ export default function Home() {
                 </div>
               )}
             </article>
+            {astrologyFacts && (
+              <section className="systems-section" aria-label="คำตอบแยกตามศาสตร์">
+                <div className="systems-heading">
+                  <div><p className="section-kicker">มุมมองจากแต่ละศาสตร์</p><h3>4 ศาสตร์ หนึ่งคำตอบ</h3></div>
+                  <p>{astrologyFacts.birthLabel}</p>
+                </div>
+                <div className="systems-grid">
+                  {[
+                    { key: "tarot", icon: "✦", title: "ไพ่ยิปซี", facts: cards.map((card) => card.nameTh).join(" • "), text: aiReading?.systems?.tarot ?? overall?.reason },
+                    { key: "thai", icon: "๙", title: astrologyFacts.thai.title, facts: astrologyFacts.thai.facts.join(" • "), text: aiReading?.systems?.thai },
+                    { key: "chinese", icon: "八", title: astrologyFacts.chinese.title, facts: astrologyFacts.chinese.facts.join(" • "), text: aiReading?.systems?.chinese },
+                    { key: "western", icon: "☉", title: astrologyFacts.western.title, facts: astrologyFacts.western.facts.join(" • "), text: aiReading?.systems?.western },
+                  ].map((system) => (
+                    <article className={`system-card ${system.key}`} key={system.key}>
+                      <div className="system-title"><span aria-hidden="true">{system.icon}</span><h4>{system.title}</h4></div>
+                      <small>{system.facts}</small>
+                      <p>{system.text ?? "ระบบคำนวณตำแหน่งพื้นฐานไว้แล้ว แต่ AI ไม่พร้อมสังเคราะห์ในขณะนี้"}</p>
+                    </article>
+                  ))}
+                </div>
+                <p className="calculation-note">{astrologyFacts.notes.join(" • ")}</p>
+              </section>
+            )}
+            </>
           ) : (
             <div className="individual-list" role="tabpanel">
               {cards.map((card, index) => (
@@ -710,7 +790,7 @@ export default function Home() {
       )}
 
       <footer>
-        <p>ใช้ไพ่เพื่อทบทวนตนเอง ไม่แทนคำแนะนำทางการแพทย์ กฎหมาย หรือการเงิน</p>
+        <p>ข้อมูลเกิดไม่ถูกจัดเก็บ • คำทำนายใช้เพื่อทบทวนตนเอง ไม่แทนคำแนะนำทางการแพทย์ กฎหมาย หรือการเงิน</p>
       </footer>
     </main>
   );
