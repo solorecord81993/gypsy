@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ไพ่ยิปซีตอบคำถาม",
-  description: "ตั้งคำถาม เลือกเปิดไพ่ 1, 3, 5 หรือ 10 ใบ แล้วอ่านคำทำนายทั้งภาพรวมและทีละใบ",
+  title: "ถามดวง 4 ศาสตร์",
+  description: "ตั้งคำถาม เลือกไพ่ด้วยตัวเอง และเพิ่มข้อมูลเกิดเพื่อประมวลโหราศาสตร์ไทย ดวงจีน และดวงสากลร่วมกัน",
   applicationName: "ไพ่ยิปซี",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
