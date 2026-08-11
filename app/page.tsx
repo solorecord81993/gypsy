@@ -32,15 +32,16 @@ type AiReading = {
 const AI_READING_ENDPOINT = "https://gypsy-woad.vercel.app/api/reading";
 type AstrologyFacts = {
   birthLabel: string;
+  asOfLabel: string;
   precision: "date" | "time" | "full";
-  western: { title: string; facts: string[] };
-  thai: { title: string; facts: string[] };
-  chinese: { title: string; facts: string[] };
+  western: { title: string; natalFacts: string[]; cycleFacts: string[]; facts: string[] };
+  thai: { title: string; natalFacts: string[]; cycleFacts: string[]; facts: string[] };
+  chinese: { title: string; natalFacts: string[]; cycleFacts: string[]; facts: string[] };
   notes: string[];
 };
 
-function localSystemSummary(title: string, facts: string[], headline: string, advice: string) {
-  return `${title}คำนวณได้ว่า ${facts.slice(0, 3).join(" • ")} เมื่อนำมาประกอบกับไพ่ คำตอบคือ ${headline} แนวทางที่ทำได้ตอนนี้คือ ${advice}`;
+function localSystemSummary(title: string, cycleFacts: string[]) {
+  return `${title}อ่านจากดวงจรโดยตรง: ${cycleFacts.slice(0, 5).join(" • ")}`;
 }
 
 const commonsImage = (fileName: string) =>
@@ -745,14 +746,14 @@ export default function Home() {
               <section className="systems-section" aria-label="คำตอบแยกตามศาสตร์">
                 <div className="systems-heading">
                   <div><p className="section-kicker">มุมมองจากแต่ละศาสตร์</p><h3>4 ศาสตร์ หนึ่งคำตอบ</h3></div>
-                  <p>{astrologyFacts.birthLabel}</p>
+                  <p>{astrologyFacts.birthLabel}<br />ดวงจร ณ {astrologyFacts.asOfLabel}</p>
                 </div>
                 <div className="systems-grid">
                   {[
                     { key: "tarot", icon: "✦", title: "ไพ่ยิปซี", facts: cards.map((card) => card.nameTh).join(" • "), text: aiReading?.systems?.tarot ?? overall?.reason },
-                    { key: "thai", icon: "๙", title: astrologyFacts.thai.title, facts: astrologyFacts.thai.facts.join(" • "), text: aiReading?.systems?.thai ?? localSystemSummary("โหราศาสตร์ไทย", astrologyFacts.thai.facts, displayedOverall.headline, displayedOverall.advice) },
-                    { key: "chinese", icon: "八", title: astrologyFacts.chinese.title, facts: astrologyFacts.chinese.facts.join(" • "), text: aiReading?.systems?.chinese ?? localSystemSummary("ดวงจีน", astrologyFacts.chinese.facts, displayedOverall.headline, displayedOverall.advice) },
-                    { key: "western", icon: "☉", title: astrologyFacts.western.title, facts: astrologyFacts.western.facts.join(" • "), text: aiReading?.systems?.western ?? localSystemSummary("ดวงสากล", astrologyFacts.western.facts, displayedOverall.headline, displayedOverall.advice) },
+                    { key: "thai", icon: "๙", title: astrologyFacts.thai.title, facts: `ดวงจร: ${astrologyFacts.thai.cycleFacts.slice(0, 5).join(" • ")}`, text: aiReading?.systems?.thai ?? localSystemSummary("โหราศาสตร์ไทย", astrologyFacts.thai.cycleFacts) },
+                    { key: "chinese", icon: "八", title: astrologyFacts.chinese.title, facts: `ดวงจร: ${astrologyFacts.chinese.cycleFacts.slice(0, 5).join(" • ")}`, text: aiReading?.systems?.chinese ?? localSystemSummary("ดวงจีน", astrologyFacts.chinese.cycleFacts) },
+                    { key: "western", icon: "☉", title: astrologyFacts.western.title, facts: `ดวงจร: ${astrologyFacts.western.cycleFacts.slice(0, 5).join(" • ")}`, text: aiReading?.systems?.western ?? localSystemSummary("ดวงสากล", astrologyFacts.western.cycleFacts) },
                   ].map((system) => (
                     <article className={`system-card ${system.key}`} key={system.key}>
                       <div className="system-title"><span aria-hidden="true">{system.icon}</span><h4>{system.title}</h4></div>
