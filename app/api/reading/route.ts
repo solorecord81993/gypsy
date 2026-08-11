@@ -145,7 +145,7 @@ const questionSubjects: Record<ReadingRequest["kind"], string> = {
 const THAI_INSTRUCTIONS = `
 คุณคือนักอ่านไพ่ยิปซีชาวไทยที่เก่งด้านการตีความเชิงบริบท ไม่ใช่พจนานุกรมความหมายไพ่
 
-เป้าหมาย: นำสัญลักษณ์ของไพ่ ตำแหน่ง ไพ่ตั้งตรงหรือกลับหัว และเมื่อมีข้อมูลวันเกิดให้นำข้อเท็จจริงจากโหราศาสตร์ไทย ดวงจีน และดวงสากล มาตีความร่วมกันจนตอบคำถามเฉพาะของผู้ใช้ได้จริง
+เป้าหมาย: ตอบคำถามเฉพาะของผู้ใช้ โดยแยกการอ่านของแต่ละศาสตร์ให้เป็นอิสระก่อน แล้วจึงสังเคราะห์เฉพาะในคำตอบภาพรวม
 
 กระบวนการที่ต้องทำในใจก่อนเขียนคำตอบ:
 ขั้นที่ 1 — ไพ่รายใบ
@@ -162,8 +162,12 @@ const THAI_INSTRUCTIONS = `
 
 ขั้นที่ 3 — ผสานศาสตร์เมื่อมี astrologyFacts
 - astrologyFacts เป็นผลคำนวณจากโปรแกรม ห้ามคำนวณราศี ลัคนา ธาตุ หรือสี่เสาใหม่ และห้ามเขียนขัดกับข้อมูลนี้
-- systems.tarot อธิบายเฉพาะไพ่, systems.thai อธิบายเฉพาะโหราศาสตร์ไทย, systems.chinese อธิบายเฉพาะดวงจีน, systems.western อธิบายเฉพาะดวงสากล
-- แต่ละศาสตร์ต้องนำข้อเท็จจริงไปตอบคำถาม ไม่ใช่อธิบายนิสัยทั่วไป
+- systems.tarot อ่านเฉพาะไพ่ ห้ามกล่าวถึงราศี ดาว ลัคนา หรือสี่เสา
+- systems.thai อ่านเฉพาะ thai.natalFacts และ thai.cycleFacts ซึ่งเป็นดาวจรนิรายนะ ห้ามกล่าวถึงไพ่ ดวงจีน หรือดวงสากล
+- systems.chinese อ่านเฉพาะ chinese.natalFacts และ chinese.cycleFacts ซึ่งเป็นเสาปี เดือน และวันจร ห้ามกล่าวถึงไพ่หรือดาวราศี
+- systems.western อ่านเฉพาะ western.natalFacts และ western.cycleFacts ซึ่งเป็นดาวจร tropical ทำมุมกับพื้นดวง ห้ามกล่าวถึงไพ่ ดวงจีน หรือโหราศาสตร์ไทย
+- คำตอบไทย จีน และสากลต้องอ้างข้อเท็จจริงจรอย่างน้อยหนึ่งข้อจาก cycleFacts ของตัวเอง แล้วตีความว่าดวงจรนั้นตอบคำถามอย่างไร ห้ามเอาข้อสรุปของไพ่ไปเขียนใหม่
+- แต่ละศาสตร์อาจให้คำตอบต่างกันได้ ต้องรักษาความต่างนั้นไว้ ไม่บังคับให้สรุปเหมือนกัน
 - reason ต้องสังเคราะห์จุดที่หลายศาสตร์สนับสนุนกันและจุดที่ให้คำเตือนต่างกัน แล้วชั่งน้ำหนักร่วมกับไพ่
 - หากไม่มี astrologyFacts ให้ตอบจากไพ่เท่านั้นและไม่ต้องสร้าง systems
 
@@ -217,7 +221,7 @@ function buildPrompt(body: ReadingRequest, astrologyFacts: AstrologyFacts | null
 - answer ของแต่ละใบต้องตีความ meaning ต่อให้สัมพันธ์กับคำถามและ position ห้ามคัดลอก meaning มาเป็นคำตอบ
 - reason ต้องสังเคราะห์ความสัมพันธ์ของไพ่ ไม่ใช่สรุปไพ่ทีละใบ
 - headline และ advice ต้องบอกการกระทำที่ผู้ใช้นำไปทำได้ทันที ห้ามจบด้วยคำกว้างอย่าง “แก้จุดเสี่ยง” หรือ “จัดการเงื่อนไข”
-- ${astrologyFacts ? "ต้องมี systems ครบทั้ง 4 ศาสตร์ และทุกช่องต้องตอบคำถามของผู้ใช้" : "ไม่ต้องส่ง systems เพราะไม่มีข้อมูลวันเกิด"}`;
+- ${astrologyFacts ? "ต้องมี systems ครบทั้ง 4 ศาสตร์ แต่ละช่องอ่านจากศาสตร์และ cycleFacts ของตัวเองเท่านั้น ไทย–จีน–สากลห้ามกล่าวถึงชื่อไพ่" : "ไม่ต้องส่ง systems เพราะไม่มีข้อมูลวันเกิด"}`;
 }
 
 function compactSentence(value: string) {
@@ -229,19 +233,24 @@ function fallbackCardAnswer(card: ReadingRequest["cards"][number], body: Reading
   return `${card.name} ในตำแหน่ง${card.position} ชี้ว่า ${card.meaning} เมื่อนำมาตอบ${subject} จึงควร${card.advice}`;
 }
 
+function cycleVerdict(systemName: string, subject: string, cycleFacts: string[]) {
+  const text = cycleFacts.join(" ");
+  const supportive = (text.match(/ตรีโกณ|โยคหน้า|ส่งกำลัง|เสริมพลัง|六合|ร่วมมือ|องศาสนิท/g) ?? []).length;
+  const challenging = (text.match(/เล็ง|ฉาก|กดดัน|ชง|แรงปะทะ|ดึงพลัง/g) ?? []).length;
+  const evidence = cycleFacts.slice(0, 5).join(" • ");
+  if (supportive > challenging) return `${systemName}ให้น้ำหนักสนับสนุน${subject}จากดวงจร: ${evidence}`;
+  if (challenging > supportive) return `${systemName}ให้น้ำหนักให้ระวัง${subject}จากดวงจร: ${evidence}`;
+  return `${systemName}ให้ภาพทั้งแรงส่งและแรงต้านต่อ${subject}จากดวงจร: ${evidence}`;
+}
+
 function fallbackSystems(body: ReadingRequest, facts: AstrologyFacts, reading: Omit<Reading, "systems"> | Reading) {
   const subject = questionSubjects[body.kind];
   const directAnswer = compactSentence(reading.headline);
-  const recommendation = compactSentence(reading.advice);
-  const thaiFacts = facts.thai.facts.slice(0, 3).join(" • ");
-  const chineseFacts = facts.chinese.facts.slice(0, 4).join(" • ");
-  const westernFacts = facts.western.facts.slice(0, 3).join(" • ");
-
   return {
     tarot: `${reading.reason} ดังนั้นคำตอบจากไพ่ต่อ${subject}คือ ${directAnswer}`,
-    thai: `พื้นดวงไทยที่คำนวณได้: ${thaiFacts} เมื่อนำมาเป็นข้อมูลพื้นฐานประกอบไพ่ คำตอบต่อ${subject}คือ ${directAnswer} สิ่งที่ควรทำคือ ${recommendation}`,
-    chinese: `สี่เสากำเนิดที่คำนวณได้: ${chineseFacts} ข้อมูลนี้บอกพื้นพลังเดิม ไม่ใช่เหตุการณ์ปัจจุบันแบบตายตัว เมื่อนำมาประกอบไพ่ น้ำหนักคำตอบต่อ${subject}คือ ${directAnswer}`,
-    western: `พื้นดวงสากลที่คำนวณได้: ${westernFacts} เมื่อนำมาประกอบกับสถานการณ์ในคำถามและไพ่ คำตอบต่อ${subject}คือ ${directAnswer} แนวทางที่ใช้ได้ทันทีคือ ${recommendation}`,
+    thai: cycleVerdict("โหราศาสตร์ไทย", subject, facts.thai.cycleFacts),
+    chinese: cycleVerdict("ดวงจีน", subject, facts.chinese.cycleFacts),
+    western: cycleVerdict("ดวงสากล", subject, facts.western.cycleFacts),
   };
 }
 
@@ -296,6 +305,19 @@ function qualityIssues(reading: Reading, body: ReadingRequest) {
   const concreteAction = /ตรวจ|ถาม|คุย|เขียน|ทดลอง|หยุด|ลด|เพิ่ม|กำหนด|แยก|เปรียบเทียบ|ขอ|เลือก|ทบทวน|สังเกต|บอก|ตั้ง|รอ|พัก|เก็บ|ตัด|ยืนยัน|วัด|หลีกเลี่ยง|วางแผน|ระบุ|ประเมิน|ตกลง|เปิด/;
   if (!concreteAction.test(reading.advice)) issues.push("คำแนะนำยังไม่บอกการกระทำที่ทำได้จริง");
   if (body.birth && !reading.systems) issues.push("ยังไม่มีคำตอบแยกครบสี่ศาสตร์");
+  if (body.birth && reading.systems) {
+    const nonTarot = [reading.systems.thai, reading.systems.chinese, reading.systems.western];
+    const cardNames = body.cards.map((card) => card.name.split(" (")[0]);
+    if (nonTarot.some((text) => cardNames.some((name) => text.includes(name)))) {
+      issues.push("คำตอบโหราศาสตร์ยังปนการอ่านไพ่");
+    }
+    if (!/จร/.test(reading.systems.thai)) issues.push("โหราศาสตร์ไทยยังไม่ได้อ่านดาวจร");
+    if (!/จร/.test(reading.systems.chinese)) issues.push("ดวงจีนยังไม่ได้อ่านเสาจร");
+    if (!/จร/.test(reading.systems.western)) issues.push("ดวงสากลยังไม่ได้อ่านดาวจร");
+    if (/ลัคนา|ราศี|เสาจร|ดาวจร/.test(reading.systems.tarot)) issues.push("คำตอบไพ่ยิปซีปนข้อมูลโหราศาสตร์");
+    const normalizedSystems = new Set(nonTarot.map((text) => text.replace(/\s/g, "")));
+    if (normalizedSystems.size < 3) issues.push("คำตอบแต่ละศาสตร์ซ้ำกัน");
+  }
 
   const indexes = new Set(reading.cards.map((card) => card.index));
   if (reading.cards.length !== body.cards.length || !body.cards.every((card) => indexes.has(card.index))) {
