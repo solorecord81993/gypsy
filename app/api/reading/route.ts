@@ -133,6 +133,15 @@ const BANNED_GENERIC = [
   "จัดการอุปสรรค",
 ];
 
+const questionSubjects: Record<ReadingRequest["kind"], string> = {
+  love: "ความสัมพันธ์ที่ถาม",
+  work: "เรื่องงานที่ถาม",
+  money: "เรื่องเงินที่ถาม",
+  health: "เรื่องสุขภาพที่ถาม",
+  decision: "ทางเลือกที่กำลังตัดสินใจ",
+  general: "คำถามนี้",
+};
+
 const THAI_INSTRUCTIONS = `
 คุณคือนักอ่านไพ่ยิปซีชาวไทยที่เก่งด้านการตีความเชิงบริบท ไม่ใช่พจนานุกรมความหมายไพ่
 
@@ -209,6 +218,72 @@ function buildPrompt(body: ReadingRequest, astrologyFacts: AstrologyFacts | null
 - reason ต้องสังเคราะห์ความสัมพันธ์ของไพ่ ไม่ใช่สรุปไพ่ทีละใบ
 - headline และ advice ต้องบอกการกระทำที่ผู้ใช้นำไปทำได้ทันที ห้ามจบด้วยคำกว้างอย่าง “แก้จุดเสี่ยง” หรือ “จัดการเงื่อนไข”
 - ${astrologyFacts ? "ต้องมี systems ครบทั้ง 4 ศาสตร์ และทุกช่องต้องตอบคำถามของผู้ใช้" : "ไม่ต้องส่ง systems เพราะไม่มีข้อมูลวันเกิด"}`;
+}
+
+function compactSentence(value: string) {
+  return value.replace(/^คำ(?:ตอบ|ทำนาย)(?:แบบตรง ๆ|ตรง ๆ)?\s*[:：]?\s*/u, "").trim();
+}
+
+function fallbackCardAnswer(card: ReadingRequest["cards"][number], body: ReadingRequest) {
+  const subject = questionSubjects[body.kind];
+  return `${card.name} ในตำแหน่ง${card.position} ชี้ว่า ${card.meaning} เมื่อนำมาตอบ${subject} จึงควร${card.advice}`;
+}
+
+function fallbackSystems(body: ReadingRequest, facts: AstrologyFacts, reading: Omit<Reading, "systems"> | Reading) {
+  const subject = questionSubjects[body.kind];
+  const directAnswer = compactSentence(reading.headline);
+  const recommendation = compactSentence(reading.advice);
+  const thaiFacts = facts.thai.facts.slice(0, 3).join(" • ");
+  const chineseFacts = facts.chinese.facts.slice(0, 4).join(" • ");
+  const westernFacts = facts.western.facts.slice(0, 3).join(" • ");
+
+  return {
+    tarot: `${reading.reason} ดังนั้นคำตอบจากไพ่ต่อ${subject}คือ ${directAnswer}`,
+    thai: `พื้นดวงไทยที่คำนวณได้: ${thaiFacts} เมื่อนำมาเป็นข้อมูลพื้นฐานประกอบไพ่ คำตอบต่อ${subject}คือ ${directAnswer} สิ่งที่ควรทำคือ ${recommendation}`,
+    chinese: `สี่เสากำเนิดที่คำนวณได้: ${chineseFacts} ข้อมูลนี้บอกพื้นพลังเดิม ไม่ใช่เหตุการณ์ปัจจุบันแบบตายตัว เมื่อนำมาประกอบไพ่ น้ำหนักคำตอบต่อ${subject}คือ ${directAnswer}`,
+    western: `พื้นดวงสากลที่คำนวณได้: ${westernFacts} เมื่อนำมาประกอบกับสถานการณ์ในคำถามและไพ่ คำตอบต่อ${subject}คือ ${directAnswer} แนวทางที่ใช้ได้ทันทีคือ ${recommendation}`,
+  };
+}
+
+function completeReading(reading: Reading, body: ReadingRequest, facts: AstrologyFacts | null): Reading {
+  const answers = new Map(reading.cards.map((card) => [card.index, card.answer]));
+  const completed: Reading = {
+    ...reading,
+    cards: body.cards.map((card) => ({
+      index: card.index,
+      answer: answers.get(card.index) ?? fallbackCardAnswer(card, body),
+    })),
+  };
+  if (facts) {
+    const fallback = fallbackSystems(body, facts, completed);
+    completed.systems = {
+      tarot: completed.systems?.tarot || fallback.tarot,
+      thai: completed.systems?.thai || fallback.thai,
+      chinese: completed.systems?.chinese || fallback.chinese,
+      western: completed.systems?.western || fallback.western,
+    };
+  }
+  return completed;
+}
+
+function buildLocalReading(body: ReadingRequest, facts: AstrologyFacts | null): Reading {
+  const reversedCount = body.cards.filter((card) => card.orientation === "กลับหัว").length;
+  const last = body.cards.at(-1)!;
+  const subject = questionSubjects[body.kind];
+  const guarded = reversedCount > Math.floor(body.cards.length / 2);
+  const headline = guarded
+    ? `${subject}ยังมีแรงต้านมากกว่าส่วนสนับสนุน จึงควรชะลอการตัดสินใจและ${last.advice}`
+    : `${subject}มีแนวโน้มเดินหน้าต่อได้ โดยให้${last.advice}`;
+  const reason = body.cards
+    .map((card) => `${card.position}: ${card.name} ${card.orientation} สะท้อนว่า ${card.meaning}`)
+    .join(" ขณะเดียวกัน ");
+  const base: Reading = {
+    headline,
+    reason,
+    advice: `ขั้นแรกให้${last.advice} แล้วตรวจผลที่เกิดขึ้นจริงก่อนตัดสินใจขั้นถัดไป`,
+    cards: body.cards.map((card) => ({ index: card.index, answer: fallbackCardAnswer(card, body) })),
+  };
+  return completeReading(base, body, facts);
 }
 
 function qualityIssues(reading: Reading, body: ReadingRequest) {
@@ -352,11 +427,10 @@ export async function POST(request: Request) {
       let bestEffortReading: Reading | null = null;
       for (const model of models) {
         try {
-          const reading = await callGroq(body, astrologyFacts, groqKey, model, repairIssues);
+          const reading = completeReading(await callGroq(body, astrologyFacts, groqKey, model, repairIssues), body, astrologyFacts);
           const issues = qualityIssues(reading, body);
           const hasCompleteCards = reading.cards.length === body.cards.length;
-          const hasRequiredSystems = !body.birth || Boolean(reading.systems);
-          if (hasCompleteCards && hasRequiredSystems) bestEffortReading = reading;
+          if (hasCompleteCards) bestEffortReading = reading;
           if (!issues.length) {
             return jsonResponse(request, { ...reading, astrology: astrologyFacts, provider: "groq" }, { headers: { "Cache-Control": "no-store" } });
           }
@@ -372,9 +446,8 @@ export async function POST(request: Request) {
       }
     }
 
-    const status = geminiKey || groqKey ? 502 : 503;
-    console.error("[api/reading] AI providers unavailable", { hasGemini: Boolean(geminiKey), hasGroq: Boolean(groqKey), status });
-    return jsonResponse(request, { error: "ระบบ AI ตอบกลับไม่สำเร็จ ระบบจะใช้คำทำนายสำรอง", astrology: astrologyFacts }, { status });
+    console.warn("[api/reading] AI providers unavailable; returning complete local reading", { hasGemini: Boolean(geminiKey), hasGroq: Boolean(groqKey) });
+    return jsonResponse(request, { ...buildLocalReading(body, astrologyFacts), astrology: astrologyFacts, provider: "fallback" }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return jsonResponse(request, { error: "ข้อมูลคำถามหรือไพ่ไม่ถูกต้อง" }, { status: 400 });
