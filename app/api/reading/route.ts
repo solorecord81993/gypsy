@@ -91,6 +91,29 @@ type ReadingRequest = z.infer<typeof requestSchema>;
 type Reading = z.infer<typeof readingSchema>;
 type RateEntry = { count: number; resetAt: number };
 
+const ALLOWED_ORIGINS = new Set([
+  "https://gypsy-tarot.solorecord81993.chatgpt.site",
+  "https://gypsy-woad.vercel.app",
+]);
+
+function corsHeaders(request: Request): Record<string, string> {
+  const origin = request.headers.get("origin");
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) return {};
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    Vary: "Origin",
+  };
+}
+
+function jsonResponse(request: Request, body: unknown, init: ResponseInit = {}) {
+  return Response.json(body, {
+    ...init,
+    headers: { ...corsHeaders(request), ...Object.fromEntries(new Headers(init.headers).entries()) },
+  });
+}
+
 const rateEntries = new Map<string, RateEntry>();
 const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT = 8;
@@ -290,7 +313,7 @@ async function callGroq(body: ReadingRequest, astrologyFacts: AstrologyFacts | n
 
 export async function POST(request: Request) {
   if (isRateLimited(getClientKey(request))) {
-    return Response.json({ error: "กรุณารอสักครู่ก่อนเปิดไพ่อีกครั้ง" }, { status: 429 });
+    return jsonResponse(request, { error: "กรุณารอสักครู่ก่อนเปิดไพ่อีกครั้ง" }, { status: 429 });
   }
 
   try {
@@ -308,7 +331,7 @@ export async function POST(request: Request) {
           issues = qualityIssues(reading, body);
         }
         if (!issues.length) {
-          return Response.json({ ...reading, astrology: astrologyFacts, provider: "gemini" }, { headers: { "Cache-Control": "no-store" } });
+          return jsonResponse(request, { ...reading, astrology: astrologyFacts, provider: "gemini" }, { headers: { "Cache-Control": "no-store" } });
         }
         throw new Error(`Gemini quality check failed: ${issues.join("; ")}`);
       } catch (error) {
@@ -325,19 +348,26 @@ export async function POST(request: Request) {
           issues = qualityIssues(reading, body);
         }
         if (issues.length) throw new Error(`Groq quality check failed: ${issues.join("; ")}`);
-        return Response.json({ ...reading, astrology: astrologyFacts, provider: "groq" }, { headers: { "Cache-Control": "no-store" } });
+        return jsonResponse(request, { ...reading, astrology: astrologyFacts, provider: "groq" }, { headers: { "Cache-Control": "no-store" } });
       } catch (error) {
         console.error("Groq tarot reading failed", error instanceof Error ? error.message : "Unknown error");
       }
     }
 
     const status = geminiKey || groqKey ? 502 : 503;
-    return Response.json({ error: "ระบบ AI ตอบกลับไม่สำเร็จ ระบบจะใช้คำทำนายสำรอง", astrology: astrologyFacts }, { status });
+    console.error("[api/reading] AI providers unavailable", { hasGemini: Boolean(geminiKey), hasGroq: Boolean(groqKey), status });
+    return jsonResponse(request, { error: "ระบบ AI ตอบกลับไม่สำเร็จ ระบบจะใช้คำทำนายสำรอง", astrology: astrologyFacts }, { status });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return Response.json({ error: "ข้อมูลคำถามหรือไพ่ไม่ถูกต้อง" }, { status: 400 });
+      return jsonResponse(request, { error: "ข้อมูลคำถามหรือไพ่ไม่ถูกต้อง" }, { status: 400 });
     }
     console.error("Tarot reading request failed", error instanceof Error ? error.message : "Unknown error");
-    return Response.json({ error: "ระบบ AI ตอบกลับไม่สำเร็จ ระบบจะใช้คำทำนายสำรอง" }, { status: 502 });
+    return jsonResponse(request, { error: "ระบบ AI ตอบกลับไม่สำเร็จ ระบบจะใช้คำทำนายสำรอง" }, { status: 502 });
   }
+}
+
+export function OPTIONS(request: Request) {
+  const origin = request.headers.get("origin");
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) return new Response(null, { status: 403 });
+  return new Response(null, { status: 204, headers: corsHeaders(request) });
 }
