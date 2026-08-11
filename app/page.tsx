@@ -26,7 +26,7 @@ type AiReading = {
   cards: Array<{ index: number; answer: string }>;
   systems?: { tarot: string; thai: string; chinese: string; western: string };
   astrology?: AstrologyFacts;
-  provider?: "gemini" | "groq";
+  provider?: "gemini" | "groq" | "fallback";
 };
 
 const AI_READING_ENDPOINT = "https://gypsy-woad.vercel.app/api/reading";
@@ -38,6 +38,10 @@ type AstrologyFacts = {
   chinese: { title: string; facts: string[] };
   notes: string[];
 };
+
+function localSystemSummary(title: string, facts: string[], headline: string, advice: string) {
+  return `${title}คำนวณได้ว่า ${facts.slice(0, 3).join(" • ")} เมื่อนำมาประกอบกับไพ่ คำตอบคือ ${headline} แนวทางที่ทำได้ตอนนี้คือ ${advice}`;
+}
 
 const commonsImage = (fileName: string) =>
   `https://commons.wikimedia.org/wiki/Special:Redirect/file/${encodeURIComponent(fileName)}?width=500`;
@@ -729,7 +733,7 @@ export default function Home() {
                 <div>
                   <div className="answer-heading">
                     <p className="section-kicker">คำตอบแบบตรง ๆ</p>
-                    {aiReading && <span className="ai-badge">{astrologyFacts ? "AI ประมวล 4 ศาสตร์" : aiReading.provider === "gemini" ? "Gemini ตีความไพ่" : "AI ตีความไพ่"}</span>}
+                    {aiReading && <span className="ai-badge">{astrologyFacts ? aiReading.provider === "fallback" ? "ประมวลครบ 4 ศาสตร์" : "AI ประมวล 4 ศาสตร์" : aiReading.provider === "gemini" ? "Gemini ตีความไพ่" : aiReading.provider === "fallback" ? "คำทำนายสำรอง" : "AI ตีความไพ่"}</span>}
                   </div>
                   <h3>{displayedOverall.headline}</h3>
                   <div className="answer-block"><strong>เพราะอะไร</strong><p>{displayedOverall.reason}</p></div>
@@ -746,14 +750,14 @@ export default function Home() {
                 <div className="systems-grid">
                   {[
                     { key: "tarot", icon: "✦", title: "ไพ่ยิปซี", facts: cards.map((card) => card.nameTh).join(" • "), text: aiReading?.systems?.tarot ?? overall?.reason },
-                    { key: "thai", icon: "๙", title: astrologyFacts.thai.title, facts: astrologyFacts.thai.facts.join(" • "), text: aiReading?.systems?.thai },
-                    { key: "chinese", icon: "八", title: astrologyFacts.chinese.title, facts: astrologyFacts.chinese.facts.join(" • "), text: aiReading?.systems?.chinese },
-                    { key: "western", icon: "☉", title: astrologyFacts.western.title, facts: astrologyFacts.western.facts.join(" • "), text: aiReading?.systems?.western },
+                    { key: "thai", icon: "๙", title: astrologyFacts.thai.title, facts: astrologyFacts.thai.facts.join(" • "), text: aiReading?.systems?.thai ?? localSystemSummary("โหราศาสตร์ไทย", astrologyFacts.thai.facts, displayedOverall.headline, displayedOverall.advice) },
+                    { key: "chinese", icon: "八", title: astrologyFacts.chinese.title, facts: astrologyFacts.chinese.facts.join(" • "), text: aiReading?.systems?.chinese ?? localSystemSummary("ดวงจีน", astrologyFacts.chinese.facts, displayedOverall.headline, displayedOverall.advice) },
+                    { key: "western", icon: "☉", title: astrologyFacts.western.title, facts: astrologyFacts.western.facts.join(" • "), text: aiReading?.systems?.western ?? localSystemSummary("ดวงสากล", astrologyFacts.western.facts, displayedOverall.headline, displayedOverall.advice) },
                   ].map((system) => (
                     <article className={`system-card ${system.key}`} key={system.key}>
                       <div className="system-title"><span aria-hidden="true">{system.icon}</span><h4>{system.title}</h4></div>
                       <small>{system.facts}</small>
-                      <p>{system.text ?? "ระบบคำนวณตำแหน่งพื้นฐานไว้แล้ว แต่ AI ไม่พร้อมสังเคราะห์ในขณะนี้"}</p>
+                      <p>{system.text}</p>
                     </article>
                   ))}
                 </div>
